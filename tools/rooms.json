@@ -1,0 +1,66 @@
+{
+  "tools": [
+    {
+      "name": "room_join",
+      "description": "Join a named room for multi-agent broadcast messaging. Returns the current member list. Idempotent.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "room": { "type": "string", "description": "Room name (alphanumeric, hyphens, colons, 1-64 chars)" },
+          "agentId": { "type": "string", "description": "Your agent ID (e.g. main, developer, openclaw-expert)" }
+        },
+        "required": ["room", "agentId"]
+      }
+    },
+    {
+      "name": "room_leave",
+      "description": "Leave a room. No-op if not a member.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "room": { "type": "string", "description": "Room name to leave" },
+          "agentId": { "type": "string", "description": "Your agent ID" }
+        },
+        "required": ["room", "agentId"]
+      }
+    },
+    {
+      "name": "room_send",
+      "description": "Broadcast a message to all other agents in a room. Returns count of delivered messages.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "room": { "type": "string", "description": "Room name" },
+          "message": { "type": "string", "description": "Message content" },
+          "agentId": { "type": "string", "description": "Your agent ID" },
+          "contentType": { "type": "string", "enum": ["text", "json"], "description": "Default: text" }
+        },
+        "required": ["room", "message", "agentId"]
+      }
+    },
+    {
+      "name": "room_list",
+      "description": "List rooms you belong to, or list members of a specific room.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "room": { "type": "string", "description": "Room name (omit to list all your rooms)" },
+          "agentId": { "type": "string", "description": "Your agent ID" }
+        },
+        "required": ["agentId"]
+      }
+    },
+    {
+      "name": "room_recv",
+      "description": "Receive pending room messages. Returns all messages queued for this agent since the last call.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "room": { "type": "string", "description": "Room name (omit to receive from all rooms)" },
+          "agentId": { "type": "string", "description": "Your agent ID" }
+        },
+        "required": ["agentId"]
+      }
+    }
+  ]
+}
