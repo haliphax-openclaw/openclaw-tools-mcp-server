@@ -6,6 +6,7 @@ import { GatewayClient } from "./gateway.js";
 import { registerTools } from "./tools/index.js";
 import { loadCustomTools } from "./custom-tools.js";
 
+
 const config = loadConfig();
 const gateway = new GatewayClient(config.gateway);
 
