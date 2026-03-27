@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   extractToolsFromEffectivePayload,
   applyMcpAllowlist,
+  parametersToZodShape,
 } from "../src/effective-tools.js";
 
 describe("effective-tools", () => {
@@ -45,5 +46,43 @@ describe("effective-tools", () => {
       typeof extractToolsFromEffectivePayload
     >;
     expect(applyMcpAllowlist(tools, ["b"]).map((t) => t.name)).toEqual(["b"]);
+  });
+
+  it("extractToolsFromEffectivePayload reads effectiveTools and items arrays", () => {
+    expect(
+      extractToolsFromEffectivePayload({
+        effectiveTools: [{ name: "e1" }],
+      }).map((t) => t.name),
+    ).toEqual(["e1"]);
+    expect(
+      extractToolsFromEffectivePayload({
+        items: [{ name: "i1", inputSchema: { type: "object", properties: {} } }],
+      })[0]!.parameters,
+    ).toEqual({ type: "object", properties: {} });
+  });
+
+  it("parametersToZodShape adds optional sessionKey when parameters missing", () => {
+    const shape = parametersToZodShape(undefined);
+    expect(Object.keys(shape)).toEqual(["sessionKey"]);
+  });
+
+  it("parametersToZodShape maps JSON schema property types", () => {
+    const shape = parametersToZodShape({
+      type: "object",
+      properties: {
+        n: { type: "number", description: "num" },
+        f: { type: "boolean" },
+        a: { type: "array" },
+        s: { type: "string" },
+        d: {},
+      },
+      required: ["s"],
+    });
+    expect(shape.n).toBeDefined();
+    expect(shape.f).toBeDefined();
+    expect(shape.a).toBeDefined();
+    expect(shape.s).toBeDefined();
+    expect(shape.d).toBeDefined();
+    expect(shape.sessionKey).toBeDefined();
   });
 });
