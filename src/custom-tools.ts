@@ -99,11 +99,12 @@ export function loadCustomTools(
 
     for (const def of defs) {
       if (!def.name) continue;
-      const schema = jsonSchemaToZod(def);
+      const shape = jsonSchemaToZod(def);
+      const inputSchema = z.object(shape).passthrough();
 
       server.registerTool(
         def.name,
-        { description: def.description ?? def.name, inputSchema: schema },
+        { description: def.description ?? def.name, inputSchema },
         async (args) => {
           const params = { ...(args as Record<string, unknown>) };
           const sessionKey = params.sessionKey as string | undefined;

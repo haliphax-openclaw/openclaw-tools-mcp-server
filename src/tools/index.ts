@@ -29,16 +29,19 @@ export function registerTools(
 
     const hasOwnSessionKey = "sessionKey" in tool.schema;
 
-    const schema: ZodRawShape = hasOwnSessionKey
+    const shape: ZodRawShape = hasOwnSessionKey
       ? tool.schema
       : {
           ...tool.schema,
           sessionKey: z.string().optional().describe("OpenClaw session key for routing"),
         };
 
+    // Passthrough: forward keys the gateway accepts but we do not declare (e.g. message.target, path, media).
+    const inputSchema = z.object(shape).passthrough();
+
     server.registerTool(
       tool.name,
-      { description: tool.description, inputSchema: schema },
+      { description: tool.description, inputSchema },
       async (args) => {
         const params = { ...(args as Record<string, unknown>) };
         let routingSessionKey: string | undefined;
