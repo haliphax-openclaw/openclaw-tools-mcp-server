@@ -7,6 +7,7 @@ import {
 } from "./effective-tools.js";
 import { filterHttpInvokableToolNames } from "./http-tool-policy.js";
 import type { GatewayToolsHttpPolicy } from "./http-tool-policy.js";
+import { fetchToolListPayload } from "./tool-list-rpc.js";
 
 export async function fetchFilteredEffectiveTools(opts: {
   rpc: GatewayRpc;
@@ -17,9 +18,7 @@ export async function fetchFilteredEffectiveTools(opts: {
 }): Promise<GatewayToolDescriptor[]> {
   let payload: unknown = readEffectiveCache(opts.cacheDir, opts.sessionKey);
   if (payload === undefined) {
-    payload = await opts.rpc.call("tools.effective", {
-      sessionKey: opts.sessionKey,
-    });
+    payload = await fetchToolListPayload(opts.rpc, opts.sessionKey);
     writeEffectiveCache(opts.cacheDir, opts.sessionKey, payload);
   }
 

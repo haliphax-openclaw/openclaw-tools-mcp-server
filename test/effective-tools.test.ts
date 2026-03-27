@@ -61,6 +61,29 @@ describe("effective-tools", () => {
     ).toEqual({ type: "object", properties: {} });
   });
 
+  it("extractToolsFromEffectivePayload flattens protocol groups (id/label)", () => {
+    const tools = extractToolsFromEffectivePayload({
+      ok: true,
+      payload: {
+        agentId: "agent",
+        profile: "full",
+        groups: [
+          {
+            id: "core",
+            label: "Core",
+            source: "core",
+            tools: [
+              { id: "web_search", label: "Web search", description: "Search the web" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.name).toBe("web_search");
+    expect(tools[0]!.description).toBe("Search the web");
+  });
+
   it("parametersToZodShape adds optional sessionKey when parameters missing", () => {
     const shape = parametersToZodShape(undefined);
     expect(Object.keys(shape)).toEqual(["sessionKey"]);

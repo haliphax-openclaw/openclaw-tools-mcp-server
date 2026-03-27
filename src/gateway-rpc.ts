@@ -57,6 +57,7 @@ export class OpenclawCliGatewayRpc implements GatewayRpc {
     ];
     const { stdout } = await execFileAsync(this.opts.cliPath, args, {
       maxBuffer: 50 * 1024 * 1024,
+      encoding: "utf8",
       env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
     });
     const text = stdout.trim();

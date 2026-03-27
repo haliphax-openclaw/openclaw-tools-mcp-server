@@ -16,7 +16,7 @@ ACP Agent ◄── stdio (JSON-RPC) ──► openclaw-tools-mcp ◄── open
 
 ## How tool lists work
 
-1. On startup, the server calls **`tools.effective`** for `OPENCLAW_SESSION_KEY` (default `main`) via the CLI.
+1. On startup, the server calls **`tools.effective`** for `OPENCLAW_SESSION_KEY` (default `main`) via the CLI. Gateways that do not implement that RPC yet fall back automatically to **`tools.catalog`** (wider catalog, not session-filtered the same way).
 2. Results are merged with a **per-session disk cache** (LRU, up to **10** session keys) under `OPENCLAW_MCP_CACHE_DIR`.
 3. Tool names are filtered by the same **HTTP invoke policy** the gateway uses: a built-in deny list plus `gateway.tools` from `~/.openclaw/openclaw.json` (`allow` / `deny`). If that file is missing or unreadable, the server may call **`config.get`** over RPC to read policy.
 4. Optionally, restrict what MCP exposes with **`openclawToolsMcp.allow`** in `openclaw.json` (array of tool names). If set, only those names that also pass the HTTP policy are registered.
@@ -118,6 +118,7 @@ Some tools (for example `sessions_send`) are on the gateway’s default HTTP den
 
 ## Troubleshooting
 
+- **`unknown method: tools.effective`** — Upgrade the gateway and CLI to a current OpenClaw release, or rely on the built-in fallback to `tools.catalog` (already tried automatically after this error).
 - **Server won’t start** — Set `OPENCLAW_GATEWAY_TOKEN`.
 - **No tools listed** — Check gateway is running, token is valid, and filters (`openclawToolsMcp.allow`, `gateway.tools`) are not excluding everything.
 - **`openclaw gateway call` errors** — Ensure `openclaw` is installed and matches your gateway; try `OPENCLAW_CLI` with an absolute path.

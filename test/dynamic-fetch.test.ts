@@ -42,6 +42,34 @@ describe("fetchFilteredEffectiveTools", () => {
     expect(tools.map((t) => t.name).sort()).toEqual(["web_search"].sort());
   });
 
+  it("falls back to tools.catalog when tools.effective is unknown", async () => {
+    let n = 0;
+    const rpc: GatewayRpc = {
+      async call(method) {
+        n++;
+        if (method === "tools.effective") {
+          throw new Error("GatewayClientRequestError: unknown method: tools.effective");
+        }
+        if (method === "tools.catalog") {
+          return {
+            groups: [{ tools: [{ id: "web_search", label: "Search", description: "" }] }],
+          };
+        }
+        throw new Error("bad method");
+      },
+    };
+
+    const tools = await fetchFilteredEffectiveTools({
+      rpc,
+      sessionKey: "legacy",
+      httpPolicy: {},
+      mcpAllowlist: undefined,
+      cacheDir,
+    });
+    expect(n).toBe(2);
+    expect(tools.map((t) => t.name)).toEqual(["web_search"]);
+  });
+
   it("reuses disk cache on second call (no second RPC)", async () => {
     let calls = 0;
     const rpc: GatewayRpc = {

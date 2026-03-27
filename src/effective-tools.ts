@@ -28,26 +28,56 @@ function findToolsArray(root: unknown): unknown[] | null {
   return null;
 }
 
+/** OpenClaw `tools.effective` / `tools.catalog` grouped result: `{ groups: [{ tools: [...] }] }`. */
+function flattenToolsFromGroups(p: unknown): unknown[] | null {
+  if (!p || typeof p !== "object") return null;
+  const o = p as Record<string, unknown>;
+  if (!Array.isArray(o.groups)) return null;
+  const out: unknown[] = [];
+  for (const g of o.groups) {
+    if (!g || typeof g !== "object") continue;
+    const tools = (g as Record<string, unknown>).tools;
+    if (Array.isArray(tools)) out.push(...tools);
+  }
+  return out.length > 0 ? out : null;
+}
+
+function descriptorFromToolRecord(t: Record<string, unknown>): GatewayToolDescriptor | null {
+  const name =
+    typeof t.name === "string" && t.name
+      ? t.name
+      : typeof t.id === "string" && t.id
+        ? t.id
+        : null;
+  if (!name) return null;
+
+  let description: string | undefined;
+  if (typeof t.description === "string" && t.description) description = t.description;
+  else if (typeof t.label === "string" && t.label) description = t.label;
+
+  const parameters =
+    (t.parameters as Record<string, unknown> | undefined) ??
+    (t.inputSchema as Record<string, unknown> | undefined);
+
+  return {
+    name,
+    description,
+    parameters:
+      parameters && typeof parameters === "object" ? parameters : undefined,
+  };
+}
+
 export function extractToolsFromEffectivePayload(root: unknown): GatewayToolDescriptor[] {
-  const arr = findToolsArray(root);
+  const p = unwrapPayload(root);
+  let arr = findToolsArray(root);
+  if (!arr) arr = flattenToolsFromGroups(p);
   if (!arr) return [];
 
   const out: GatewayToolDescriptor[] = [];
   for (const item of arr) {
     if (!item || typeof item !== "object") continue;
-    const t = item as Record<string, unknown>;
-    const name = t.name;
-    if (typeof name !== "string" || !name) continue;
-    const description = typeof t.description === "string" ? t.description : undefined;
-    const parameters =
-      (t.parameters as Record<string, unknown> | undefined) ??
-      (t.inputSchema as Record<string, unknown> | undefined);
-    out.push({
-      name,
-      description,
-      parameters:
-        parameters && typeof parameters === "object" ? parameters : undefined,
-    });
+    const d = descriptorFromToolRecord(item as Record<string, unknown>);
+    if (d) out.push(d);
   }
   return out;
 }
