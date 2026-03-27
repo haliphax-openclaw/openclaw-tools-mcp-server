@@ -1,27 +1,25 @@
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, mkdirSync } from "fs";
+import { homedir } from "os";
+import { join, resolve } from "path";
+import { httpToWsGatewayUrl } from "./gateway-rpc.js";
 
 export interface Config {
-  gateway: { url: string; token: string };
-  tools: string[];
-  customTools: string[];
+  gateway: { url: string; token: string; wsUrl: string };
+  openclawJsonPath: string;
+  cacheDir: string;
+  defaultSessionKey: string;
+  openclawCli: string;
+  rpcTimeoutMs: number;
 }
-
-const DEFAULT_TOOLS = [
-  "web_search",
-  "web_fetch",
-  "browser",
-  "pdf",
-  "message",
-  "canvas",
-  "sessions_send",
-];
 
 export function loadConfig(): Config {
   let file: Partial<{
-    gateway: Partial<Config["gateway"]>;
-    tools: string[];
-    customTools: string[];
+    gateway: Partial<{ url: string; token: string }>;
+    openclawJsonPath: string;
+    cacheDir: string;
+    defaultSessionKey: string;
+    openclawCli: string;
+    rpcTimeoutMs: number;
   }> = {};
   try {
     const raw = readFileSync(
@@ -30,7 +28,7 @@ export function loadConfig(): Config {
     );
     file = JSON.parse(raw);
   } catch {
-    // no config file — rely on env vars
+    // optional file
   }
 
   const token =
@@ -47,13 +45,45 @@ export function loadConfig(): Config {
     file.gateway?.url ??
     "http://127.0.0.1:18789";
 
-  const tools = process.env.OPENCLAW_MCP_TOOLS
-    ? process.env.OPENCLAW_MCP_TOOLS.split(",").map((t) => t.trim())
-    : file.tools ?? DEFAULT_TOOLS;
+  const wsUrl =
+    process.env.OPENCLAW_GATEWAY_WS_URL ?? httpToWsGatewayUrl(url);
 
-  const customTools = process.env.OPENCLAW_MCP_CUSTOM_TOOLS
-    ? process.env.OPENCLAW_MCP_CUSTOM_TOOLS.split(",").map((t) => t.trim())
-    : file.customTools ?? [];
+  const openclawJsonPath =
+    process.env.OPENCLAW_JSON_PATH ??
+    process.env.OPENCLAW_OPENCLAW_JSON ??
+    file.openclawJsonPath ??
+    join(homedir(), ".openclaw", "openclaw.json");
 
-  return { gateway: { url, token }, tools, customTools };
+  const cacheDir =
+    process.env.OPENCLAW_MCP_CACHE_DIR ??
+    file.cacheDir ??
+    join(homedir(), ".cache", "openclaw-tools-mcp");
+
+  try {
+    mkdirSync(cacheDir, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+
+  const defaultSessionKey =
+    process.env.OPENCLAW_SESSION_KEY ??
+    file.defaultSessionKey ??
+    "main";
+
+  const openclawCli =
+    process.env.OPENCLAW_CLI ?? file.openclawCli ?? "openclaw";
+
+  const rpcTimeoutMs =
+    Number(process.env.OPENCLAW_GATEWAY_RPC_TIMEOUT_MS) ||
+    file.rpcTimeoutMs ||
+    30_000;
+
+  return {
+    gateway: { url, token, wsUrl },
+    openclawJsonPath,
+    cacheDir,
+    defaultSessionKey,
+    openclawCli,
+    rpcTimeoutMs,
+  };
 }

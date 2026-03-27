@@ -1,41 +1,44 @@
 # openclaw-tools-mcp
 
-MCP server that exposes [OpenClaw](https://github.com/openclaw/openclaw) tools to ACP agents (Kiro, Codex, Claude Code, etc.).
+MCP server that exposes [OpenClaw](https://github.com/openclaw/openclaw) gateway tools to ACP agents (Kiro, Codex, Claude Code, etc.).
 
-ACP agents run in their own runtime with their own native tools but lack access to OpenClaw's capabilities. This server bridges that gap — web search, page fetching, browser automation, PDF analysis, messaging, inter-agent communication, and Canvas are all available as MCP tools.
+ACP agents run in their own runtime with their own native tools but lack access to OpenClaw’s capabilities. This server bridges that gap: whatever the gateway reports as **effective tools** for a session (built-ins plus plugins/extensions) is advertised over MCP and invoked through the same path the gateway uses.
 
 ```
-ACP Agent ◄── stdio (JSON-RPC) ──► openclaw-tools-mcp ◄── HTTP ──► OpenClaw Gateway
+ACP Agent ◄── stdio (JSON-RPC) ──► openclaw-tools-mcp ◄── openclaw gateway call ──► Gateway (WebSocket RPC)
 ```
 
-## Default tools
+## Requirements
 
-| Tool | Description |
-|------|-------------|
-| `web_search` | Search the web |
-| `web_fetch` | Fetch and extract readable content from URLs |
-| `browser` | Control a web browser (navigate, click, type, screenshot, etc.) |
-| `pdf` | Analyze PDF documents |
-| `message` | Send messages via Discord, Telegram, WhatsApp, etc. |
-| `canvas` | Control the Canvas visual workspace |
-| `sessions_send` | Send a message into another OpenClaw session (agent-to-agent) |
+- Node.js >= 22
+- A running OpenClaw Gateway
+- The **`openclaw`** CLI on `PATH` (or set `OPENCLAW_CLI`) so the server can run `openclaw gateway call …` for `tools.effective`, `tools.invoke`, and optional `config.get` fallbacks
+
+## How tool lists work
+
+1. On startup, the server calls **`tools.effective`** for `OPENCLAW_SESSION_KEY` (default `main`) via the CLI.
+2. Results are merged with a **per-session disk cache** (LRU, up to **10** session keys) under `OPENCLAW_MCP_CACHE_DIR`.
+3. Tool names are filtered by the same **HTTP invoke policy** the gateway uses: a built-in deny list plus `gateway.tools` from `~/.openclaw/openclaw.json` (`allow` / `deny`). If that file is missing or unreadable, the server may call **`config.get`** over RPC to read policy.
+4. Optionally, restrict what MCP exposes with **`openclawToolsMcp.allow`** in `openclaw.json` (array of tool names). If set, only those names that also pass the HTTP policy are registered.
+
+Invocation uses **`tools.invoke`** RPC (not `POST /tools/invoke`).
 
 ## Quick start
 
 ```bash
-cd openclaw-tools-mcp
+cd openclaw-tools-mcp-server
 npm install
 npm run build
 ```
 
-Add to `~/.kiro/settings/mcp.json`:
+Add to `~/.kiro/settings/mcp.json` (or your client’s MCP config):
 
 ```json
 {
   "mcpServers": {
     "openclaw-tools": {
       "command": "node",
-      "args": ["/absolute/path/to/openclaw-tools-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/openclaw-tools-mcp-server/dist/index.js"],
       "env": {
         "OPENCLAW_GATEWAY_TOKEN": "${OPENCLAW_GATEWAY_TOKEN}"
       }
@@ -44,8 +47,6 @@ Add to `~/.kiro/settings/mcp.json`:
 }
 ```
 
-Requires Node.js >= 22 and a running OpenClaw Gateway.
-
 ## Configuration
 
 ### Environment variables
@@ -53,14 +54,18 @@ Requires Node.js >= 22 and a running OpenClaw Gateway.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENCLAW_GATEWAY_TOKEN` | Yes | — | Bearer token for gateway auth |
-| `OPENCLAW_GATEWAY_URL` | No | `http://127.0.0.1:18789` | Gateway base URL |
-| `OPENCLAW_MCP_TOOLS` | No | all 7 tools | Comma-separated list of tools to expose |
-| `OPENCLAW_MCP_CONFIG` | No | `openclaw-mcp.json` | Path to config file |
-| `OPENCLAW_MCP_CUSTOM_TOOLS` | No | — | Comma-separated paths to custom tool JSON files |
+| `OPENCLAW_GATEWAY_URL` | No | `http://127.0.0.1:18789` | Gateway base URL (used to derive WebSocket URL) |
+| `OPENCLAW_GATEWAY_WS_URL` | No | derived from `OPENCLAW_GATEWAY_URL` | Explicit `ws://` / `wss://` URL if needed |
+| `OPENCLAW_SESSION_KEY` | No | `main` | Session key for `tools.effective` and default routing for `tools.invoke` |
+| `OPENCLAW_MCP_CACHE_DIR` | No | `~/.cache/openclaw-tools-mcp` | Disk cache for effective tool payloads |
+| `OPENCLAW_JSON_PATH` / `OPENCLAW_OPENCLAW_JSON` | No | `~/.openclaw/openclaw.json` | Path to OpenClaw config (HTTP tool policy + optional MCP allowlist) |
+| `OPENCLAW_CLI` | No | `openclaw` | Path or name of the OpenClaw CLI |
+| `OPENCLAW_GATEWAY_RPC_TIMEOUT_MS` | No | `30000` | Timeout for each `openclaw gateway call` |
+| `OPENCLAW_MCP_CONFIG` | No | `openclaw-mcp.json` | Optional JSON overlay (see below) |
 
-### Config file
+### Optional `openclaw-mcp.json`
 
-Optional `openclaw-mcp.json`:
+Same keys as supported in `loadConfig()`:
 
 ```json
 {
@@ -68,85 +73,54 @@ Optional `openclaw-mcp.json`:
     "url": "http://127.0.0.1:18789",
     "token": "your-token"
   },
-  "tools": ["web_search", "web_fetch", "browser", "pdf", "message", "canvas", "sessions_send"],
-  "customTools": ["./tools/rooms.json"]
+  "openclawJsonPath": "/home/you/.openclaw/openclaw.json",
+  "cacheDir": "/home/you/.cache/openclaw-tools-mcp",
+  "defaultSessionKey": "main",
+  "openclawCli": "openclaw",
+  "rpcTimeoutMs": 30000
 }
 ```
 
-Environment variables override config file values.
+Environment variables override file values.
 
-### Exposing a subset of tools
+### Restricting tools exposed to MCP
+
+In `~/.openclaw/openclaw.json`:
 
 ```json
 {
-  "mcpServers": {
-    "openclaw-tools": {
-      "command": "node",
-      "args": ["/path/to/openclaw-tools-mcp/dist/index.js"],
-      "env": {
-        "OPENCLAW_GATEWAY_TOKEN": "${OPENCLAW_GATEWAY_TOKEN}",
-        "OPENCLAW_MCP_TOOLS": "web_search,web_fetch,message"
-      }
+  "openclawToolsMcp": {
+    "allow": ["web_search", "web_fetch", "message"]
+  }
+}
+```
+
+Only those tools (that are also allowed for HTTP invoke) are registered.
+
+### Allowing tools blocked by default HTTP policy
+
+Some tools (for example `sessions_send`) are on the gateway’s default HTTP deny list. Allow them via `gateway.tools` in `openclaw.json`, then restart the gateway:
+
+```json
+{
+  "gateway": {
+    "tools": {
+      "allow": ["sessions_send"]
     }
   }
 }
 ```
 
-## Custom tool definitions
+## Runtime behavior
 
-Load additional tools from JSON files — useful for custom OpenClaw skills/plugins.
-
-```json
-{
-  "tools": [
-    {
-      "name": "room_join",
-      "description": "Join a named room for multi-agent broadcast messaging.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "room": { "type": "string", "description": "Room name" },
-          "agentId": { "type": "string", "description": "Your agent ID" }
-        },
-        "required": ["room", "agentId"]
-      }
-    }
-  ]
-}
-```
-
-Single-tool files (without the `tools` wrapper) also work. The schema format matches what OpenClaw plugins use in `registerTool()`. Supported types: `string`, `number`, `integer`, `boolean`, `array`. Enums via `"enum": [...]`.
-
-A `sessionKey` parameter is automatically injected into every custom tool for gateway routing.
-
-A ready-made definition for the rooms plugin is included at [`tools/rooms.json`](tools/rooms.json).
-
-## Notes
-
-- The server uses stdio transport — ACP agents spawn it as a child process.
-- All tool calls are proxied to the gateway's `POST /tools/invoke` HTTP endpoint.
-- `sessions_send` requires a gateway config change — see below.
-- Every built-in tool (except `sessions_send`) accepts an optional `sessionKey` parameter for routing the call to a specific agent session on the gateway.
-
-### Enabling sessions_send
-
-`sessions_send` is on the gateway's default HTTP deny list for `/tools/invoke`. Without this config change, calls will return `404 Tool not available`. Add to your OpenClaw config (`~/.openclaw/openclaw.json`):
-
-```json5
-gateway: {
-  tools: {
-    allow: ["sessions_send"]
-  }
-}
-```
-
-Then restart the gateway (`openclaw gateway restart`).
+- The server uses **stdio** transport; the client spawns it as a child process.
+- Each MCP tool accepts an optional **`sessionKey`** argument; if omitted, `OPENCLAW_SESSION_KEY` is used for `tools.invoke`.
 
 ## Troubleshooting
 
-- **Server won't start** — `OPENCLAW_GATEWAY_TOKEN` must be set.
-- **Tools return errors** — Verify the gateway is running (`openclaw gateway status`) and the token is correct.
-- **Tool not found (404)** — The tool may be blocked by gateway policy. Check `gateway.tools.deny` in your OpenClaw config.
+- **Server won’t start** — Set `OPENCLAW_GATEWAY_TOKEN`.
+- **No tools listed** — Check gateway is running, token is valid, and filters (`openclawToolsMcp.allow`, `gateway.tools`) are not excluding everything.
+- **`openclaw gateway call` errors** — Ensure `openclaw` is installed and matches your gateway; try `OPENCLAW_CLI` with an absolute path.
 - **Verify in Kiro CLI** — Run `/mcp` in an interactive session to see loaded servers and tools.
 
 ## License
