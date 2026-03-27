@@ -23,7 +23,7 @@ function formatInvokeResult(result: unknown): string {
 }
 
 /**
- * Registers each OpenClaw gateway tool descriptor as an MCP tool that forwards to `tools.invoke` RPC.
+ * Registers each OpenClaw gateway tool descriptor as an MCP tool that forwards to `POST /tools/invoke`.
  */
 export function registerGatewayToolsAsMcp(
   server: McpServer,

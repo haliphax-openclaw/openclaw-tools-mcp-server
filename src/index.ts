@@ -47,7 +47,11 @@ const server = new McpServer({
   version: "2.0.0",
 });
 
-const invoker = new GatewayToolInvoker(rpc);
+const invoker = new GatewayToolInvoker({
+  baseUrl: config.gateway.url,
+  token: config.gateway.token,
+  timeoutMs: config.rpcTimeoutMs,
+});
 registerGatewayToolsAsMcp(
   server,
   descriptors,

@@ -1,102 +1,103 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { GatewayToolInvoker } from "../src/gateway-tool-invoker.js";
-import type { GatewayRpc } from "../src/gateway-rpc.js";
 
-function rpcFrom(
-  fn: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): GatewayRpc {
-  return { call: fn };
+function jsonResponse(
+  body: unknown,
+  init: { status?: number; headers?: HeadersInit } = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status: init.status ?? 200,
+    headers: { "Content-Type": "application/json", ...init.headers },
+  });
 }
 
 describe("GatewayToolInvoker", () => {
-  it("maps top-level ok/result/error from tools.invoke", async () => {
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async () => ({
+  it("POSTs to /tools/invoke on gateway origin and maps ok/result/error", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      jsonResponse({
         ok: false,
         error: { type: "tool_error", message: "nope" },
-      })),
+      }),
     );
+    const invoker = new GatewayToolInvoker({
+      baseUrl: "http://127.0.0.1:18789/",
+      token: "tok",
+      fetchFn,
+    });
     const res = await invoker.invoke("web_search", { q: "x" }, "sess");
     expect(res).toEqual({
       ok: false,
       result: undefined,
       error: { type: "tool_error", message: "nope" },
     });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(url).toBe("http://127.0.0.1:18789/tools/invoke");
+    expect(init?.method).toBe("POST");
+    expect((init?.headers as Record<string, string>)?.Authorization).toBe("Bearer tok");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      tool: "web_search",
+      args: { q: "x" },
+      sessionKey: "sess",
+    });
   });
 
-  it("uses top-level ok/result when ok is boolean (does not read nested payload)", async () => {
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async () => ({
-        ok: true,
-        payload: { ok: true, result: { details: { x: 1 } } },
-      })),
-    );
-    const res = await invoker.invoke("t", {});
-    expect(res.ok).toBe(true);
-    expect(res.result).toBeUndefined();
-  });
-
-  it("reads ok from inner payload object", async () => {
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async () => ({
-        payload: { ok: true, result: "inner" },
-      })),
-    );
-    const res = await invoker.invoke("t", { a: 1 }, "sk");
-    expect(res).toEqual({ ok: true, result: "inner", error: undefined });
-  });
-
-  it("omits sessionKey when not provided", async () => {
-    let seen: Record<string, unknown> | undefined;
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async (_m, params) => {
-        seen = params;
-        return { ok: true, result: null };
-      }),
-    );
+  it("omits sessionKey in JSON body when not provided", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ ok: true, result: null }));
+    const invoker = new GatewayToolInvoker({
+      baseUrl: "https://gw.example.com/prefix/ignored",
+      token: "t",
+      fetchFn,
+    });
     await invoker.invoke("tool", { x: 1 });
-    expect(seen).toEqual({ tool: "tool", args: { x: 1 } });
+    expect(fetchFn.mock.calls[0]![0]).toBe("https://gw.example.com/tools/invoke");
+    expect(JSON.parse(fetchFn.mock.calls[0]![1]!.body as string)).toEqual({
+      tool: "tool",
+      args: { x: 1 },
+    });
   });
 
-  it("includes sessionKey in RPC params when provided", async () => {
-    let seen: Record<string, unknown> | undefined;
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async (_m, params) => {
-        seen = params;
-        return { ok: true };
-      }),
-    );
-    await invoker.invoke("tool", {}, "my-session");
-    expect(seen).toEqual({ tool: "tool", args: {}, sessionKey: "my-session" });
-  });
-
-  it("treats unrecognized shapes as success with raw result", async () => {
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async () => ({ notOkShape: true })),
-    );
-    const res = await invoker.invoke("t", {});
-    expect(res).toEqual({ ok: true, result: { notOkShape: true } });
-  });
-
-  it("returns rpc_error when call throws", async () => {
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async () => {
-        throw new Error("spawn failed");
-      }),
-    );
+  it("maps HTTP error status using JSON error body when present", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ ok: false, error: { type: "bad_request", message: "invalid" } }, {
+          status: 400,
+        }),
+      );
+    const invoker = new GatewayToolInvoker({
+      baseUrl: "http://h:1",
+      token: "t",
+      fetchFn,
+    });
     const res = await invoker.invoke("t", {});
     expect(res.ok).toBe(false);
-    expect(res.error).toEqual({ type: "rpc_error", message: "spawn failed" });
+    expect(res.error).toEqual({ type: "bad_request", message: "invalid" });
   });
 
-  it("stringifies non-Error throws", async () => {
-    const invoker = new GatewayToolInvoker(
-      rpcFrom(async () => {
-        throw "boom";
-      }),
-    );
+  it("uses http_error when status not ok and body has no structured error", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response("nope", { status: 502 }));
+    const invoker = new GatewayToolInvoker({
+      baseUrl: "http://h:1",
+      token: "t",
+      fetchFn,
+    });
+    const res = await invoker.invoke("t", {});
+    expect(res).toMatchObject({
+      ok: false,
+      error: { type: "http_error", message: "HTTP 502" },
+    });
+  });
+
+  it("returns network_error when fetch throws", async () => {
+    const fetchFn = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    const invoker = new GatewayToolInvoker({
+      baseUrl: "http://127.0.0.1:18789",
+      token: "t",
+      fetchFn,
+    });
     const res = await invoker.invoke("t", {});
     expect(res.ok).toBe(false);
-    expect(res.error?.message).toBe("boom");
+    expect(res.error).toEqual({ type: "network_error", message: "ECONNREFUSED" });
   });
 });
